@@ -1,0 +1,25 @@
+[project]
+name = "pest-control-voice-bot"
+version = "1.0.0"
+description = "Multi-agent AI voice bot for PCO and ECO Pest Control — Deepgram STT, ElevenLabs TTS, AWS Bedrock LLM"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "pipecat-ai[cartesia,daily,deepgram,openai,runner,silero,twilio,webrtc,aws,elevenlabs]",
+    "pipecat-ai-cli",
+    "fastapi>=0.127.1",
+    "uvicorn>=0.41.0",
+    "twilio>=9.10.2",
+    "loguru>=0.7.3",
+    "python-dotenv>=1.2.1",
+]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.404,<2",
+    "ruff>=0.12.11,<1",
+]
+
+[tool.ruff]
+line-length = 100
+[tool.ruff.lint]
+select = ["I"]

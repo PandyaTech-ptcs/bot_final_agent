@@ -1,0 +1,303 @@
+{
+  "customers": [
+    {
+      "phone_number": "5551234567",
+      "customer_id": "CUST-001",
+      "customer_name": "John Smith",
+      "email": "john.smith@email.com"
+    },
+    {
+      "phone_number": "5559876543",
+      "customer_id": "CUST-002",
+      "customer_name": "Sarah Johnson",
+      "email": "sarah.j@email.com"
+    },
+    {
+      "phone_number": "5555551234",
+      "customer_id": "CUST-003",
+      "customer_name": "Mike Davis",
+      "email": "mike.davis@email.com"
+    },
+    {
+      "phone_number": "5558675309",
+      "customer_id": "CUST-004",
+      "customer_name": "Sarah Mitchell",
+      "email": "sarah.m@email.com"
+    },
+    {
+      "phone_number": "5552347890",
+      "customer_id": "CUST-005",
+      "customer_name": "James Ortega",
+      "email": "james.o@email.com"
+    }
+  ],
+  "appointments": [
+    {
+      "phone_number": "5551234567",
+      "appointment_date": "March 15, 2026",
+      "start_time": "9:00 AM",
+      "end_time": "11:00 AM",
+      "service_type": "General Pest Control"
+    },
+    {
+      "phone_number": "5558675309",
+      "appointment_date": "March 15, 2025",
+      "start_time": "9:00 AM",
+      "end_time": "12:00 PM",
+      "service_type": "General Pest Control"
+    },
+    {
+      "phone_number": "5559876543",
+      "appointment_date": "March 22, 2026",
+      "start_time": "1:00 PM",
+      "end_time": "3:00 PM",
+      "service_type": "Termite Treatment"
+    }
+  ],
+  "service_areas": [
+    "90210",
+    "30301",
+    "77001",
+    "77002",
+    "77003",
+    "77004",
+    "77005",
+    "77006",
+    "77007",
+    "77008",
+    "77009",
+    "77010",
+    "77011",
+    "77012",
+    "77013",
+    "77014",
+    "77015",
+    "77020",
+    "77025",
+    "77030",
+    "77035",
+    "77040",
+    "77045",
+    "77050",
+    "77055",
+    "77060",
+    "77065",
+    "77070",
+    "77075",
+    "77080",
+    "77090",
+    "77095",
+    "77099",
+    "77401",
+    "77450",
+    "77477",
+    "77478",
+    "77479",
+    "77489",
+    "77494",
+    "77496",
+    "77498"
+  ],
+  "services": [
+    {
+      "service_id": "general_pest",
+      "name": "General Pest Control",
+      "pests_covered": ["ants", "roaches", "spiders", "silverfish", "earwigs", "centipedes", "beetles"]
+    },
+    {
+      "service_id": "termite",
+      "name": "Termite Treatment",
+      "pests_covered": ["termites", "wood-boring insects"]
+    },
+    {
+      "service_id": "rodent",
+      "name": "Rodent Control",
+      "pests_covered": ["mice", "rats", "rodents"]
+    },
+    {
+      "service_id": "mosquito",
+      "name": "Mosquito Treatment",
+      "pests_covered": ["mosquitoes", "gnats", "flies"]
+    },
+    {
+      "service_id": "bed_bug",
+      "name": "Bed Bug Treatment",
+      "pests_covered": ["bed bugs"]
+    },
+    {
+      "service_id": "wasp_bee",
+      "name": "Wasp & Bee Removal",
+      "pests_covered": ["wasps", "bees", "hornets", "yellow jackets"]
+    },
+    {
+      "service_id": "flea_tick",
+      "name": "Flea & Tick Control",
+      "pests_covered": ["fleas", "ticks"]
+    }
+  ],
+  "pricing": {
+    "general_pest": {
+      "single_family": {
+        "recurring": {
+          "plan_name": "All Season Plan",
+          "initial_price": "$149",
+          "recurring_price": "$89",
+          "frequency": "Quarterly",
+          "description": "Full interior and exterior treatment. Follow-up in 3 weeks. Quarterly visits. Free re-service if pests return."
+        },
+        "one_time": {
+          "plan_name": "One-Time General Pest Service",
+          "price": "$199",
+          "guarantee": "30-day guarantee",
+          "description": "Full interior and exterior treatment for your current pest issue."
+        }
+      },
+      "multi_family": {
+        "one_time": {
+          "plan_name": "One-Time General Pest Service",
+          "price": "$249",
+          "guarantee": "30-day guarantee",
+          "description": "Full interior and exterior treatment for multi-unit properties."
+        }
+      }
+    },
+    "termite": {
+      "single_family": {
+        "recurring": {
+          "plan_name": "Termite Protection Plan",
+          "initial_price": "$499",
+          "recurring_price": "$199",
+          "frequency": "Annually",
+          "description": "Full termite inspection and treatment. Annual monitoring visits."
+        },
+        "one_time": {
+          "plan_name": "One-Time Termite Treatment",
+          "price": "$699",
+          "guarantee": "30-day guarantee",
+          "description": "Complete termite treatment with full inspection report."
+        }
+      },
+      "multi_family": {
+        "one_time": {
+          "plan_name": "One-Time Termite Treatment",
+          "price": "$899",
+          "guarantee": "30-day guarantee",
+          "description": "Complete termite treatment for multi-unit properties."
+        }
+      }
+    },
+    "rodent": {
+      "single_family": {
+        "recurring": {
+          "plan_name": "Rodent Guard Plan",
+          "initial_price": "$199",
+          "recurring_price": "$99",
+          "frequency": "Bi-Monthly",
+          "description": "Trapping, baiting, and entry-point sealing. Bi-monthly monitoring."
+        },
+        "one_time": {
+          "plan_name": "One-Time Rodent Control",
+          "price": "$299",
+          "guarantee": "30-day guarantee",
+          "description": "Full rodent treatment including traps, bait stations, and exclusion."
+        }
+      },
+      "multi_family": {
+        "one_time": {
+          "plan_name": "One-Time Rodent Control",
+          "price": "$399",
+          "guarantee": "30-day guarantee",
+          "description": "Full rodent treatment for multi-unit properties."
+        }
+      }
+    },
+    "mosquito": {
+      "single_family": {
+        "recurring": {
+          "plan_name": "Mosquito Shield Plan",
+          "initial_price": "$99",
+          "recurring_price": "$79",
+          "frequency": "Monthly (April–October)",
+          "description": "Monthly barrier spray treatment during mosquito season."
+        },
+        "one_time": {
+          "plan_name": "One-Time Mosquito Treatment",
+          "price": "$149",
+          "guarantee": "30-day guarantee",
+          "description": "Full yard barrier spray to knock down mosquito population."
+        }
+      },
+      "multi_family": {
+        "one_time": {
+          "plan_name": "One-Time Mosquito Treatment",
+          "price": "$199",
+          "guarantee": "30-day guarantee",
+          "description": "Full property mosquito barrier treatment."
+        }
+      }
+    },
+    "bed_bug": {
+      "single_family": {
+        "one_time": {
+          "plan_name": "Bed Bug Treatment",
+          "price": "$399",
+          "guarantee": "30-day guarantee",
+          "description": "Full heat and chemical treatment for bed bug elimination."
+        }
+      },
+      "multi_family": {
+        "one_time": {
+          "plan_name": "Bed Bug Treatment",
+          "price": "$499",
+          "guarantee": "30-day guarantee",
+          "description": "Full bed bug treatment for multi-unit properties."
+        }
+      }
+    },
+    "wasp_bee": {
+      "single_family": {
+        "one_time": {
+          "plan_name": "Wasp & Bee Removal",
+          "price": "$149",
+          "guarantee": "30-day guarantee",
+          "description": "Safe nest removal and treatment to prevent return."
+        }
+      },
+      "multi_family": {
+        "one_time": {
+          "plan_name": "Wasp & Bee Removal",
+          "price": "$199",
+          "guarantee": "30-day guarantee",
+          "description": "Wasp and bee removal for multi-unit properties."
+        }
+      }
+    },
+    "flea_tick": {
+      "single_family": {
+        "recurring": {
+          "plan_name": "Flea & Tick Shield Plan",
+          "initial_price": "$129",
+          "recurring_price": "$79",
+          "frequency": "Bi-Monthly",
+          "description": "Interior and exterior flea and tick treatment. Bi-monthly service."
+        },
+        "one_time": {
+          "plan_name": "One-Time Flea & Tick Treatment",
+          "price": "$179",
+          "guarantee": "30-day guarantee",
+          "description": "Full interior and exterior flea and tick elimination."
+        }
+      },
+      "multi_family": {
+        "one_time": {
+          "plan_name": "One-Time Flea & Tick Treatment",
+          "price": "$229",
+          "guarantee": "30-day guarantee",
+          "description": "Flea and tick treatment for multi-unit properties."
+        }
+      }
+    }
+  },
+  "bookings": [],
+  "office_notifications": []
+}
