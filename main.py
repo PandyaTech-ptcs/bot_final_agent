@@ -22,6 +22,7 @@ Run:
 import os
 import sys
 import asyncio
+import json
 
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import HTMLResponse
@@ -60,20 +61,36 @@ logger.info(f"PCO numbers: {PCO_NUMBERS}")
 logger.info(f"ECO numbers: {ECO_NUMBERS}")
 
 # ─────────────────────────────────────────────────────────────
-#  Agent configs
+#  Agent configs (Loaded from JSON)
 # ─────────────────────────────────────────────────────────────
+AGENTS_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agents_config.json")
+
+def _load_agents_config():
+    try:
+        with open(AGENTS_CONFIG_FILE, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading {AGENTS_CONFIG_FILE}: {e}")
+        return {}
+
+_agents_data = _load_agents_config()
+_pco_data = _agents_data.get("pco", {})
+_eco_data = _agents_data.get("eco", {})
+
 PCO_CONFIG = AgentConfig(
-    company_name="PCO Pest Control",
-    elevenlabs_voice_id=os.getenv("PCO_ELEVENLABS_VOICE_ID", "g6xIsTj2HwM6VR4iXFCw"),
-    agent_transfer_number=os.getenv("PCO_AGENT_NUMBER", "+15553334444"),
+    company_name=_pco_data.get("company_name", "PCO Pest Control"),
+    elevenlabs_voice_id=_pco_data.get("voice_id", os.getenv("PCO_ELEVENLABS_VOICE_ID", "g6xIsTj2HwM6VR4iXFCw")),
+    agent_transfer_number=_pco_data.get("agent_transfer_number", os.getenv("PCO_AGENT_NUMBER", "+15553334444")),
     data_file=DATA_FILE,
+    system_prompt=_pco_data.get("system_prompt", ""),
 )
 
 ECO_CONFIG = AgentConfig(
-    company_name="ECO Pest Control",
-    elevenlabs_voice_id=os.getenv("ECO_ELEVENLABS_VOICE_ID", "g6xIsTj2HwM6VR4iXFCw"),
-    agent_transfer_number=os.getenv("ECO_AGENT_NUMBER", "+15555556666"),
+    company_name=_eco_data.get("company_name", "ECO Pest Control"),
+    elevenlabs_voice_id=_eco_data.get("voice_id", os.getenv("ECO_ELEVENLABS_VOICE_ID", "g6xIsTj2HwM6VR4iXFCw")),
+    agent_transfer_number=_eco_data.get("agent_transfer_number", os.getenv("ECO_AGENT_NUMBER", "+15555556666")),
     data_file=DATA_FILE,
+    system_prompt=_eco_data.get("system_prompt", ""),
 )
 
 def resolve_agent_config(to_number: str) -> AgentConfig:

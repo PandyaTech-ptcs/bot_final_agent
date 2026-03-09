@@ -55,6 +55,7 @@ class AgentConfig:
     elevenlabs_voice_id: str        # ElevenLabs voice ID for this agent
     agent_transfer_number: str      # Phone number to transfer to a live human
     data_file: str                  # Absolute path to the JSON data file
+    system_prompt: str = ""         # (Optional) Custom system prompt template
 
 
 # ─────────────────────────────────────────────────────────────
@@ -167,8 +168,9 @@ class PassthroughAssistantAggregator(LLMAssistantAggregator):
 # ─────────────────────────────────────────────────────────────
 #  System prompt builder
 # ─────────────────────────────────────────────────────────────
-def build_system_prompt(company_name: str) -> str:
-    return f"""You are an AI voice assistant for {company_name}. You speak like a warm, friendly human representative — casual, natural, and genuinely helpful. Every response should feel like a real conversation, not a scripted interview. Never rush through questions. React to what the caller says before moving forward.
+def build_system_prompt(config: AgentConfig) -> str:
+    # Use custom prompt if provided, else fallback to hardcoded default
+    template = config.system_prompt if config.system_prompt else """You are an AI voice assistant for {company_name}. You speak like a warm, friendly human representative — casual, natural, and genuinely helpful. Every response should feel like a real conversation, not a scripted interview. Never rush through questions. React to what the caller says before moving forward.
 AUDIO EXPRESSION RULES
 Dynamically integrate audio tags into every response to make speech expressive and engaging.
 Audio tags must be enclosed in square brackets (e.g., [happy], [sighs]).
@@ -237,6 +239,7 @@ Never make it feel like a handoff — make it feel like a favor. When a caller a
 CLOSING
 End warmly and genuinely: "[happy] It was so nice chatting with you! [warm] If you ever need anything at all, don't hesitate to call us back. Thanks for choosing {company_name} — hope you have an amazing rest of your day!"
 """
+    return template.format(company_name=config.company_name)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -275,7 +278,7 @@ async def run_pest_control_bot(
         aws_secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
     )
 
-    system_prompt = build_system_prompt(config.company_name)
+    system_prompt = build_system_prompt(config)
 
     messages = [
         {"role": "system", "content": system_prompt},
