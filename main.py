@@ -23,6 +23,7 @@ import os
 import sys
 import asyncio
 import json
+import httpx
 
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import HTMLResponse
@@ -47,18 +48,8 @@ load_dotenv(override=True)
 DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "pest_control_data.json")
 
 # ─────────────────────────────────────────────────────────────
-#  Phone → agent routing tables
+#  Agent configs (Loaded from JSON)
 # ─────────────────────────────────────────────────────────────
-def _parse_numbers(env_var: str) -> set[str]:
-    """Parse a comma-separated env variable into a normalised set of phone numbers."""
-    raw = os.getenv(env_var, "")
-    return {n.strip() for n in raw.split(",") if n.strip()}
-
-PCO_NUMBERS: set[str] = _parse_numbers("PCO_PHONE_NUMBERS")
-ECO_NUMBERS: set[str] = _parse_numbers("ECO_PHONE_NUMBERS")
-
-logger.info(f"PCO numbers: {PCO_NUMBERS}")
-logger.info(f"ECO numbers: {ECO_NUMBERS}")
 
 # ─────────────────────────────────────────────────────────────
 #  Agent configs (Loaded from JSON)
@@ -93,20 +84,48 @@ ECO_CONFIG = AgentConfig(
     system_prompt=_eco_data.get("system_prompt", ""),
 )
 
-def resolve_agent_config(to_number: str) -> AgentConfig:
+async def resolve_agent_config(to_number: str) -> AgentConfig | None:
     """
-    Return the correct AgentConfig based on the Twilio 'To' number.
-    Falls back to ECO Pest Control if the number is not mapped.
+    Look up which agent to use via an external API.
+    Returns None if the API fails or number is unknown.
     """
-    if to_number in PCO_NUMBERS:
-        logger.info(f"Routing {to_number} → PCO Pest Control")
-        return PCO_CONFIG
-    elif to_number in ECO_NUMBERS:
-        logger.info(f"Routing {to_number} → ECO Pest Control")
-        return ECO_CONFIG
-    else:
-        logger.warning(f"Unknown To number '{to_number}' — defaulting to ECO Pest Control")
-        return ECO_CONFIG
+    api_url = os.getenv("COMPANY_LOOKUP_API_URL")
+    if not api_url:
+        logger.error("COMPANY_LOOKUP_API_URL not set — cannot resolve agent")
+        return None
+
+    # Normalize number: remove + if present
+    clean_number = to_number.replace("+", "").strip()
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            logger.info(f"Looking up company for number: {clean_number} at: {api_url}")
+            resp = await client.post(api_url, json={"twilio_number": clean_number})
+            if resp.status_code == 200:
+                body = resp.json()
+                if body.get("success") and "data" in body:
+                    company_info = body["data"]["company"]
+                    company_name = company_info["name"].lower()
+                    company_id = company_info.get("id", 0)
+                    
+                    if "pco" in company_name:
+                        logger.info(f"API result: {company_name} (ID: {company_id}) → Routing to PCO")
+                        config = PCO_CONFIG
+                    else:
+                        logger.info(f"API result: {company_name} (ID: {company_id}) → Routing to ECO")
+                        config = ECO_CONFIG
+                    
+                    # Update config with the live ID from API
+                    config.company_id = company_id
+                    return config
+                else:
+                    logger.warning(f"API result failed or no company found: {body}")
+            else:
+                logger.error(f"Routing API error {resp.status_code}: {resp.text}")
+    except Exception as e:
+        logger.error(f"Routing API request failed: {type(e).__name__} - {str(e)}")
+
+    return None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -261,16 +280,18 @@ async def bot_entry(request: Request):
     host = request.headers.get("host", "localhost:8765")
     form_data = await request.form()
     to_number  = form_data.get("To", "")
+    from_number = form_data.get("From", "")
     call_sid   = form_data.get("CallSid", "")
 
     ws_url = f"wss://{host}/ws"
-    logger.info(f"Incoming call → To: {to_number}  CallSid: {call_sid}  WS: {ws_url}")
+    logger.info(f"Incoming call → To: {to_number} From: {from_number} CallSid: {call_sid}")
 
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
     <Stream url="{ws_url}">
       <Parameter name="to_number" value="{to_number}" />
+      <Parameter name="from_number" value="{from_number}" />
       <Parameter name="call_sid" value="{call_sid}" />
     </Stream>
   </Connect>
@@ -305,8 +326,9 @@ async def ws_endpoint(websocket: WebSocket):
                 stream_sid = msg["start"]["streamSid"]
                 params      = msg["start"].get("customParameters", {})
                 to_number   = params.get("to_number", "")
+                from_number = params.get("from_number", "")
                 call_sid    = params.get("call_sid", "")
-                logger.info(f"Stream started — sid={stream_sid}  to={to_number}  call_sid={call_sid}")
+                logger.info(f"Stream started — sid={stream_sid}  to={to_number} from={from_number} call_sid={call_sid}")
                 break
 
             elif event == "stop":
@@ -324,8 +346,12 @@ async def ws_endpoint(websocket: WebSocket):
         await websocket.close()
         return
 
-    # ── Resolve which agent to use ──
-    agent_config = resolve_agent_config(to_number)
+    # ── Resolve which agent to use dynamically ──
+    agent_config = await resolve_agent_config(to_number)
+    if not agent_config:
+        logger.error(f"❌ Could not resolve company for {to_number} — closing.")
+        await websocket.close()
+        return
     await manager.broadcast(f"[{agent_config.company_name.split()[0].upper()}] New call connected → {to_number}")
 
     # ── Transport ──
@@ -377,6 +403,9 @@ async def ws_endpoint(websocket: WebSocket):
             handle_sigint=False,
             log_callback=broadcast_log,
             transfer_callback=transfer_call,
+            conversation_id=call_sid,
+            to_number=to_number,
+            from_number=from_number,
         )
     except Exception as e:
         logger.error(f"Bot error: {e}")
