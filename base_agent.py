@@ -134,28 +134,43 @@ def _json_get_plan_price(data_file: str, service_type: str, property_type: str, 
         plan_type = available[0]
     return {"found": True, "plan_type": plan_type, **plan}
 
-def _json_book_service(data_file: str, booking_data: dict) -> dict:
-    data = _load_data(data_file)
-    booking_id = f"BK-{datetime.now().strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:4].upper()}"
-    booking_data["booking_id"] = booking_id
-    booking_data["created_at"] = datetime.now().isoformat()
-    data.setdefault("bookings", []).append(booking_data)
-    _save_data(data_file, data)
-    logger.info(f"✅ Booking saved: {booking_id}")
-    return {"success": True, "booking_id": booking_id, "message": "Booking confirmed"}
+async def _create_amazon_connect_task(company_id: int, task_name: str, description: str, attributes: dict) -> dict:
+    api_base = os.getenv("COMPANY_LOOKUP_API_URL", "").replace("/api/get-company-by-number", "")
+    if not api_base:
+        return {"success": False, "error": "API base not configured."}
+    
+    url = f"{api_base}/api/chat-bot-amazon-connect-data"
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            resp = await client.post(url, json={"company_id": company_id})
+            if resp.status_code == 200:
+                body = resp.json()
+                if body.get("success") and "data" in body:
+                    for item in body["data"]:
+                        instance_id = item.get("amazon_connect_instance_id")
+                        contact_flow_id = item.get("amazon_connect_contact_flow_id")
+                        if instance_id and contact_flow_id:
+                            import boto3
+                            region = os.getenv("AWS_REGION", "us-east-1")
+                            connect_client = boto3.client("connect", region_name=region)
+                            
+                            safe_attrs = {}
+                            for k, v in attributes.items():
+                                if v: safe_attrs[str(k)] = str(v)[:32768] # AWS max limits
 
-def _json_notify_office(data_file: str, phone_number: str, message: str) -> dict:
-    data = _load_data(data_file)
-    notification = {
-        "id": str(uuid.uuid4())[:8],
-        "phone_number": phone_number,
-        "message": message,
-        "timestamp": datetime.now().isoformat(),
-    }
-    data.setdefault("office_notifications", []).append(notification)
-    _save_data(data_file, data)
-    logger.info(f"📋 Office notified: {message}")
-    return {"success": True, "notification_id": notification["id"]}
+                            connect_client.start_task_contact(
+                                InstanceId=instance_id,
+                                ContactFlowId=contact_flow_id,
+                                Name=task_name[:512],
+                                Description=description[:4096],
+                                Attributes=safe_attrs
+                            )
+                            return {"success": True, "message": f"Task '{task_name}' successfully created."}
+            logger.warning(f"Could not find valid Amazon Connect data from API: {body if 'body' in locals() else resp.text}")
+            return {"success": False, "error": "No valid instance_id/contact_flow_id found for task creation."}
+    except Exception as e:
+        logger.error(f"Failed to create Amazon Connect task: {e}")
+        return {"success": False, "error": str(e)}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -432,7 +447,43 @@ async def run_pest_control_bot(
         await params.result_callback({"serviced": False, "zipcode": zipcode})
 
     async def list_services(params: FunctionCallParams):
-        logger.info("[list_services] fetching services")
+        logger.info(f"[list_services] fetching services from API for company {config.company_id}")
+        api_base = os.getenv("COMPANY_LOOKUP_API_URL", "").replace("/api/get-company-by-number", "")
+        if api_base:
+            url = f"{api_base}/api/load-services?company_id={config.company_id}"
+            try:
+                async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        body = resp.json()
+                        if body.get("success") and "data" in body:
+                            services = []
+                            for s in body["data"]:
+                                meta = {}
+                                if s.get("service_meta"):
+                                    try: meta = json.loads(s["service_meta"])
+                                    except: pass
+                                
+                                available_plans = []
+                                if s.get("monthly_json"): available_plans.append("recurring")
+                                if s.get("yearly_json"): available_plans.append("yearly")
+                                if s.get("onetime_json"): available_plans.append("one_time")
+                                if s.get("all_season_basic_json"): available_plans.append("all_season_basic")
+                                if s.get("all_season_plus_json"): available_plans.append("all_season_plus")
+                                
+                                services.append({
+                                    "service_id": s.get("id"),
+                                    "name": meta.get("title", s.get("id")),
+                                    "description": meta.get("description", ""),
+                                    "available_plans": available_plans
+                                })
+                            await params.result_callback({"services": services})
+                            return
+            except Exception as e:
+                logger.error(f"[list_services] API failed: {e}")
+
+        # Fallback to local json
+        logger.info("[list_services] fetching services (fallback)")
         result = _json_list_services(config.data_file)
         logger.info(f"[list_services] {len(result.get('services', []))} services")
         await params.result_callback(result)
@@ -442,8 +493,49 @@ async def run_pest_control_bot(
         property_type = params.arguments.get("property_type", "single_family")
         plan_type     = params.arguments.get("plan_type", "recurring")
         logger.info(f"[get_plan_price_details] service={service_type}, property={property_type}, plan={plan_type}")
+
+        api_base = os.getenv("COMPANY_LOOKUP_API_URL", "").replace("/api/get-company-by-number", "")
+        if api_base:
+            url = f"{api_base}/api/load-services?company_id={config.company_id}"
+            try:
+                async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        body = resp.json()
+                        if body.get("success") and "data" in body:
+                            for s in body["data"]:
+                                if s.get("id") == service_type:
+                                    price_info = {}
+                                    if plan_type == "recurring":
+                                        if s.get("monthly_json"):
+                                            price_info = json.loads(s["monthly_json"])
+                                        elif s.get("yearly_json"):
+                                            price_info = json.loads(s["yearly_json"])
+                                    elif plan_type == "yearly":
+                                        if s.get("yearly_json"):
+                                            price_info = json.loads(s["yearly_json"])
+                                    elif plan_type == "all_season_basic":
+                                        if s.get("all_season_basic_json"):
+                                            price_info = json.loads(s["all_season_basic_json"])
+                                    elif plan_type == "all_season_plus":
+                                        if s.get("all_season_plus_json"):
+                                            price_info = json.loads(s["all_season_plus_json"])
+                                    elif plan_type == "one_time":
+                                        if s.get("onetime_json"):
+                                            price_info = json.loads(s["onetime_json"])
+                                            
+                                    if price_info:
+                                        result = {"found": True, "plan_type": plan_type, **price_info}
+                                        await params.result_callback(result)
+                                        return
+                            await params.result_callback({"error": f"Pricing for '{plan_type}' not found for service '{service_type}'", "found": False})
+                            return
+            except Exception as e:
+                logger.error(f"[get_plan_price_details] API failed: {e}")
+
+        # Fallback to local json
         result = _json_get_plan_price(config.data_file, service_type, property_type, plan_type)
-        logger.info(f"[get_plan_price_details] result={result}")
+        logger.info(f"[get_plan_price_details] fallback result={result}")
         await params.result_callback(result)
 
     async def book_service(params: FunctionCallParams):
@@ -465,8 +557,14 @@ async def run_pest_control_bot(
             "contact_preference": params.arguments.get("contact_preference", ""),
             "square_footage":     params.arguments.get("square_footage", ""),
         }
-        logger.info(f"[book_service] saving booking for {config.company_name}: {booking_data}")
-        result = _json_book_service(config.data_file, booking_data)
+        logger.info(f"[book_service] saving booking task for {config.company_name}")
+        description = "New Booking Request:\n" + "\n".join([f"{k}: {v}" for k, v in booking_data.items() if v])
+        result = await _create_amazon_connect_task(
+            config.company_id,
+            task_name=f"Booking: {booking_data['name']} - {booking_data['service_type']}",
+            description=description,
+            attributes={"customer_phone": booking_data['phone'], "customer_name": booking_data['name']}
+        )
         logger.info(f"[book_service] result={result}")
         await params.result_callback(result)
 
@@ -474,7 +572,13 @@ async def run_pest_control_bot(
         message = params.arguments.get("message", "")
         phone   = params.arguments.get("phone_number", "")
         logger.info(f"[notify_office] phone={phone}, message={message}")
-        result = _json_notify_office(config.data_file, phone, message)
+        description = f"Incoming Office Notification:\nPhone: {phone}\nMessage: {message}"
+        result = await _create_amazon_connect_task(
+            config.company_id,
+            task_name="Office Notification",
+            description=description,
+            attributes={"customer_phone": phone}
+        )
         await params.result_callback(result)
 
     async def transfer_to_agent(params: FunctionCallParams):
@@ -541,12 +645,12 @@ async def run_pest_control_bot(
         description=(
             "Get pricing details for a pest control plan. "
             "MUST include both service_type (service id from list_services) and property_type. "
-            "Use plan_type='recurring' for subscription plans and plan_type='one_time' for one-time service."
+            "Use a plan_type from the available_plans returned by list_services (e.g. 'recurring', 'one_time', 'all_season_basic', 'all_season_plus')."
         ),
         properties={
             "service_type":  {"type": "string", "description": "Service ID returned from list_services."},
             "property_type": {"type": "string", "enum": ["single_family", "multi_family"], "description": "Property type."},
-            "plan_type":     {"type": "string", "enum": ["recurring", "one_time"], "description": "Type of plan."},
+            "plan_type":     {"type": "string", "description": "Type of plan. Must match one of the available_plans returned by list_services."},
         },
         required=["service_type", "property_type", "plan_type"],
     )
