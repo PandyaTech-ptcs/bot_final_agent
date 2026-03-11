@@ -201,26 +201,43 @@ async def run_pest_control_bot(
     logger.info(f"Starting {config.company_name} bot (ID: {conversation_id}, To: {to_number}, From: {from_number})")
 
     # ── Fetch Caller Details (at call start) ──
-    external_data = {"found": False}
+    external_data = {"found": False, "appointment": None}
     api_base = os.getenv("COMPANY_LOOKUP_API_URL", "").replace("/api/get-company-by-number", "")
     if api_base and from_number:
         try:
             # Twilio numbers sometimes have +, remove it for consistency
             clean_from = from_number.replace("+", "").strip()
-            url = f"{api_base}/api/lookup-account"
+            lookup_url = f"{api_base}/api/lookup-account"
+            appt_url = f"{api_base}/api/get-next-appointment"
+            
             async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
-                logger.info(f"Checking for existing customer at {url} (ID: {config.company_id}, From: {clean_from})")
-                resp = await client.post(url, json={"company_id": config.company_id, "phone": clean_from})
-                if resp.status_code == 200:
-                    external_data = resp.json()
-                    # Mark as found if success is true or it contains data
+                logger.info(f"Checking for existing customer at {lookup_url} (ID: {config.company_id}, From: {clean_from})")
+                
+                # Fetch account
+                account_resp = await client.post(lookup_url, json={"company_id": config.company_id, "phone": clean_from})
+                if account_resp.status_code == 200:
+                    external_data = account_resp.json()
                     if external_data.get("success"):
                         external_data["found"] = True
-                        logger.info(f"✅ Caller recognized: {external_data.get('customer_name')}")
+                        logger.info(f"✅ Caller recognized: {external_data.get('customer_name', 'Customer')}")
+                        
+                        # Fetch appointment only if account is found
+                        appt_resp = await client.post(appt_url, json={"company_id": config.company_id, "phone": clean_from})
+                        if appt_resp.status_code == 200:
+                            appt_body = appt_resp.json()
+                            if appt_body.get("success") and appt_body.get("data") and isinstance(appt_body["data"], list) and len(appt_body["data"]) > 0:
+                                appt = appt_body["data"][0]
+                                external_data["appointment"] = {
+                                    "appointment_date": appt.get("date"),
+                                    "start_time": appt.get("start"),
+                                    "end_time": appt.get("end"),
+                                    "service_type": appt.get("service_type")
+                                }
+                                logger.info(f"✅ Upcoming appointment found for {clean_from}")
                     else:
                         logger.info("Caller not recognized")
                 else:
-                    logger.warning(f"Lookup API error: {resp.status_code}")
+                    logger.warning(f"Lookup API error: {account_resp.status_code}")
         except Exception as e:
             logger.error(f"Failed to lookup caller: {e}")
 
@@ -255,13 +272,21 @@ async def run_pest_control_bot(
 
     if external_data.get("found"):
         customer_name = external_data.get("customer_name") or external_data.get("name", "Customer")
+        appt_msg = ""
+        if external_data.get("appointment"):
+            appt = external_data["appointment"]
+            appt_msg = f"They have an upcoming {appt.get('service_type')} on {appt.get('appointment_date')} between {appt.get('start_time')} and {appt.get('end_time')}. YOU MUST mention this appointment immediately as part of your greeting!"
+        else:
+            appt_msg = "They have no upcoming appointments. Ask if they want to book a new one."
+            
         messages.append({
             "role": "system",
             "content": (
                 f"CALLER RECOGNIZED: The caller is {customer_name}. "
                 f"Account Data: {json.dumps(external_data)}. "
+                f"APPOINTMENT STATUS: {appt_msg} "
                 "CRITICAL: Do NOT ask if they are a customer. Do NOT ask for their phone number. "
-                "The user has already been greeted by name. Directly ask how you can help."
+                "The user has already been greeted by name. Directly address their appointment status and ask how you can help today."
             )
         })
     else:
@@ -285,34 +310,93 @@ async def run_pest_control_bot(
         phone = params.arguments.get("phone_number", "").strip()
         logger.info(f"[lookup_account] phone={phone}, company_id={config.company_id}")
 
-        # Priority: External API
         api_base = os.getenv("COMPANY_LOOKUP_API_URL", "").replace("/api/get-company-by-number", "")
         if api_base:
-            url = f"{api_base}/api/lookup-account"
+            lookup_url = f"{api_base}/api/lookup-account"
+            appt_url = f"{api_base}/api/get-next-appointment"
             try:
                 async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
-                    resp = await client.post(url, json={"company_id": config.company_id, "phone": phone})
+                    resp = await client.post(lookup_url, json={"company_id": config.company_id, "phone": phone})
                     if resp.status_code == 200:
-                        result = resp.json()
-                        logger.info(f"[lookup_account] External API result: {result}")
-                        await params.result_callback(result)
-                        return
+                        body = resp.json()
+                        logger.info(f"[lookup_account] External API result: {body}")
+                        if body.get("success") and "data" in body:
+                            data = body["data"]
+                            
+                            # Also check for appointment right now so the LLM gets everything it needs
+                            appt_data = None
+                            try:
+                                appt_resp = await client.post(appt_url, json={"company_id": config.company_id, "phone": phone})
+                                if appt_resp.status_code == 200:
+                                    appt_body = appt_resp.json()
+                                    if appt_body.get("success") and appt_body.get("data") and isinstance(appt_body["data"], list) and len(appt_body["data"]) > 0:
+                                        appt = appt_body["data"][0]
+                                        appt_data = {
+                                            "appointment_date": appt.get("date"),
+                                            "start_time": appt.get("start"),
+                                            "end_time": appt.get("end"),
+                                            "service_type": appt.get("service_type")
+                                        }
+                            except Exception as appt_e:
+                                logger.error(f"[lookup_account] secondary appt fetch failed: {appt_e}")
+                            
+                            mapped_result = {
+                                "found": True,
+                                "customer_name": f"{data.get('fname', '')} {data.get('lname', '')}".strip() or "Customer",
+                                "customer_id": data.get("customerId"),
+                                "address": data.get("address"),
+                                "city": data.get("city"),
+                                "zipcode": data.get("zip"),
+                                "email": data.get("email"),
+                                "appointment": appt_data
+                            }
+                            await params.result_callback(mapped_result)
+                            return
+                        else:
+                            await params.result_callback({"found": False})
+                            return
                     else:
                         logger.warning(f"[lookup_account] API returned {resp.status_code}: {resp.text}")
             except Exception as e:
                 logger.error(f"[lookup_account] External API failed: {e}")
 
-        # Fallback: Local JSON
-        result = _json_lookup_account(config.data_file, phone)
-        logger.info(f"[lookup_account] local result={result}")
-        await params.result_callback(result)
+        logger.warning(f"[lookup_account] Returning not found for {phone}.")
+        await params.result_callback({"found": False})
 
     async def get_next_appointment_by_phone(params: FunctionCallParams):
         phone = params.arguments.get("phone_number", "").strip()
-        logger.info(f"[get_next_appointment_by_phone] phone={phone}")
-        result = _json_get_next_appointment(config.data_file, phone)
-        logger.info(f"[get_next_appointment_by_phone] result={result}")
-        await params.result_callback(result)
+        logger.info(f"[get_next_appointment_by_phone] phone={phone}, company_id={config.company_id}")
+
+        api_base = os.getenv("COMPANY_LOOKUP_API_URL", "").replace("/api/get-company-by-number", "")
+        if api_base:
+            url = f"{api_base}/api/get-next-appointment"
+            try:
+                async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+                    resp = await client.post(url, json={"company_id": config.company_id, "phone": phone})
+                    if resp.status_code == 200:
+                        body = resp.json()
+                        logger.info(f"[get_next_appointment] External API result: {body}")
+                        if body.get("success") and body.get("data") and isinstance(body["data"], list) and len(body["data"]) > 0:
+                            appt = body["data"][0]
+                            mapped_result = {
+                                "found": True,
+                                "appointment_date": appt.get("date"),
+                                "start_time": appt.get("start"),
+                                "end_time": appt.get("end"),
+                                "service_type": appt.get("service_type")
+                            }
+                            await params.result_callback(mapped_result)
+                            return
+                        else:
+                            await params.result_callback({"found": False})
+                            return
+                    else:
+                        logger.warning(f"[get_next_appointment] API returned {resp.status_code}: {resp.text}")
+            except Exception as e:
+                logger.error(f"[get_next_appointment] External API failed: {e}")
+
+        logger.warning(f"[get_next_appointment] API failed or not configured. Returning not found for {phone}.")
+        await params.result_callback({"found": False})
 
     async def check_zip(params: FunctionCallParams):
         zipcode = params.arguments.get("zipcode", "").strip()
