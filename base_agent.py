@@ -326,19 +326,26 @@ async def run_pest_control_bot(
                 async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
                     resp = await client.post(url, json={"company_id": config.company_id, "zip_code": zipcode})
                     if resp.status_code == 200:
-                        result = resp.json()
-                        logger.info(f"[check_zip] External API result: {result}")
-                        await params.result_callback(result)
-                        return
+                        body = resp.json()
+                        logger.info(f"[check_zip] External API result: {body}")
+                        if body.get("success") and "data" in body:
+                            # Map the external API format to the expected schema format
+                            data = body["data"]
+                            is_serviced = data.get("is_serviced", False)
+                            await params.result_callback({"serviced": is_serviced, "zipcode": zipcode})
+                            return
+                        else:
+                            # If successful but body indicates failure, default to false
+                            await params.result_callback({"serviced": False, "zipcode": zipcode})
+                            return
                     else:
                         logger.warning(f"[check_zip] API returned {resp.status_code}: {resp.text}")
             except Exception as e:
                 logger.error(f"[check_zip] External API failed: {e}")
 
-        # Fallback: Local JSON
-        result = _json_check_zip(config.data_file, zipcode)
-        logger.info(f"[check_zip] result={result}")
-        await params.result_callback(result)
+        # If API is not configured or failed, strictly return "not serviced".
+        logger.warning(f"[check_zip] API failed or not configured. Returning not serviced for {zipcode}.")
+        await params.result_callback({"serviced": False, "zipcode": zipcode})
 
     async def list_services(params: FunctionCallParams):
         logger.info("[list_services] fetching services")
