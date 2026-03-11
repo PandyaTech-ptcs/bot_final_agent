@@ -105,18 +105,20 @@ async def resolve_agent_config(to_number: str) -> AgentConfig | None:
                 body = resp.json()
                 if body.get("success") and "data" in body:
                     company_info = body["data"]["company"]
-                    company_name = company_info["name"].lower()
+                    company_name = company_info.get("company_name", company_info.get("name", "ECO Pest Control"))
                     company_id = company_info.get("id", 0)
                     
-                    if "pco" in company_name:
-                        logger.info(f"API result: {company_name} (ID: {company_id}) → Routing to PCO")
-                        config = PCO_CONFIG
-                    else:
-                        logger.info(f"API result: {company_name} (ID: {company_id}) → Routing to ECO")
-                        config = ECO_CONFIG
+                    # Create dynamic config off the API response
+                    config = AgentConfig(
+                        company_name=company_name,
+                        elevenlabs_voice_id=company_info.get("voice", os.getenv("ECO_ELEVENLABS_VOICE_ID", "g6xIsTj2HwM6VR4iXFCw")),
+                        agent_transfer_number=company_info.get("agent_transfer_number", os.getenv("ECO_AGENT_NUMBER", "+18333678393")),
+                        data_file=DATA_FILE,
+                        system_prompt=company_info.get("prompt", ""),
+                        company_id=company_id
+                    )
+                    logger.info(f"API result: {company_name} (ID: {company_id}) → Dynamic config created")
                     
-                    # Update config with the live ID from API
-                    config.company_id = company_id
                     return config
                 else:
                     logger.warning(f"API result failed or no company found: {body}")
